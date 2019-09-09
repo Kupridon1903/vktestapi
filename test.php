@@ -2,11 +2,13 @@
 require 'vendor/autoload.php';
 
 use MiniUpload\VkApi as VkApi;
+use MiniUpload\Helpers as Helpers;
 
 if (!isset($_REQUEST)) {
     return;
 }
 $vkApi = new VkApi();
+$helpers = new Helpers();
 
 //Парсим JSON
 $data = json_decode(file_get_contents('php://input'), true);
@@ -28,14 +30,18 @@ switch ($data['type']) {
         $text = $message['text'];
         $word_arr = array("https://", "http://", "www.", "vk.com/");
 
-        if ($vkApi->check_link($text) == '200'){
+        if ($helpers->check_link($text) == '200'){
             $text = str_replace($word_arr, "", $text);
-            if ($vkApi->upload_cover($text) == true){
-                $response = $vkApi->get_users($text, "");
-                $vkApi->send_message($peer_id, "Пользователь " . $response['response'][0]['first_name'] . " "
-                . $response['response'][0]['last_name'] . " добавлен на обложку");
+            try {
+                if ($vkApi->upload_cover($text) == true) {
+                    $response = $vkApi->get_users($text, "");
+                    $vkApi->send_message($peer_id, "Пользователь " . $response['response'][0]['first_name'] . " "
+                        . $response['response'][0]['last_name'] . " добавлен на обложку");
+                } else {
+                    $vkApi->send_message($peer_id, "Такого пользователя не существует/неправильно введен id");
+                }
             }
-            else {
+            catch (Exception $e) {
                 $vkApi->send_message($peer_id, "Такого пользователя не существует/неправильно введен id");
             }
         }

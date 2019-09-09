@@ -3,6 +3,7 @@ namespace MiniUpload;
 
 use Imagick;
 use ImagickDraw;
+use VK\Client\VKApiClient;
 
 class VkApi {
 
@@ -11,9 +12,17 @@ class VkApi {
     const VK_API_ENDPOINT = 'https://api.vk.com/method/'; // Адрес обращения к API
     const VK_API_VERSION = '5.95'; // Используемая версия API
 
+    private $vk;
+    private $vkGraphics;
+
+    function __construct() {
+        $this->vk = new VKApiClient('5.95');
+        $this->vkGraphics = new VkGraphics();
+    }
+
     // Функция отправки сообщения
     function send_message($peer_id, $message) {
-        $this->api('messages.send', array(
+        $this->vk->messages()->send(self::VK_API_ACCESS_TOKEN, array(
             'peer_id' => $peer_id, // id пользователя
             'message' => $message, // Сообщение
             'random_id' => time() + rand(0,1000) // Рандомное число для предотвращения отправки одних и тех же сообщений
@@ -22,43 +31,22 @@ class VkApi {
 
     // Функция получения информации о пользователе
     function get_users($user_id, $fields) {
-        $response = $this->api('users.get', array(
-            'user_ids' => $user_id, // id пользователя
-            'fields' => $fields, // Дополнительные поля
+        $response = $this->vk->users()->get(self::VK_API_ACCESS_TOKEN, array(
+            'user_ids' => array($user_id), // id пользователя
+            'fields' => array($fields), // Дополнительные поля
             'name_case' => 'nom' // Склонение имени
         ));
         return $response;
     }
 
-    // Функция изменения обложки
-    function change_cover($user_id){
-        $data = $this->get_users($user_id,'photo_200'); // Получаем необходимую информацию
-        $oblozhka = new Imagick("images/oblozhka.jpg"); // Фон обложки
-        $mini =  new Imagick($data['response'][0]['photo_200']); // Фотография
-        $mask =  new Imagick("images/mask.png"); // Маска для скругления углов
-        $draw = new ImagickDraw();
-        $draw->setFillColor('rgb(30, 30, 30)'); // Цвет шрифта
-        $draw->setFontSize(36); // Размер шрифта
-        $draw->setTextAlignment(\Imagick::ALIGN_CENTER); // Центрируем
-
-        $mini->resizeImage(200, 200, Imagick::FILTER_LANCZOS, 1); // Настраиваем размеры
-        $mask->resizeImage(200, 200, Imagick::FILTER_LANCZOS, 1);
-        $mask->compositeImage($mini, Imagick::COMPOSITE_ATOP, 0, 0); // Скругляем края фотографии
-        $oblozhka->compositeImage($mask, Imagick::COMPOSITE_OVER, 670, 70); // Добавляем фото на обложку
-        $oblozhka->annotateImage($draw, 770, 300, 0, $data['response'][0]['first_name'] . ' '
-            . $data['response'][0]['last_name']); // Добавляем текст на обложку
-
-        $oblozhka->writeImage('images/upload.png'); // Сохраняем изображение
-    }
-
     // Функция получения ссылки для загрузки обложки
     function get_cover_link() {
-        $response = $this->api('photos.getOwnerCoverPhotoUploadServer', array(
+        $response = $this->vk->photos()->getOwnerCoverPhotoUploadServer(self::VK_API_ACCESS_TOKEN, array(
             'group_id' => '186251455', // id группы
-            'crop_x' => '0', //
-            'crop_y' => '0', //
-            'crop_x2' => '1590', //
-            'crop_y2' => '400' //
+            'crop_x' => '0', // Координата X верхнего левого угла для обрезки изображения
+            'crop_y' => '0', // Координата Y верхнего левого угла для обрезки изображения
+            'crop_x2' => '1590', // Координата X нижнего правого угла для обрезки изображения
+            'crop_y2' => '400' // Координата Y нижнего правого угла для обрезки изображения
         ));
         return $response;
     }
@@ -68,9 +56,8 @@ class VkApi {
         // Загружаем ссылку на фото
         $data = $this->get_cover_link();
         // Изменяем обложку
-        $this->change_cover($user_id);
-
-        $upload_url = $data['response']['upload_url']; // Получаем ссылку для загрузки обложки
+        $this->vkGraphics->change_cover($user_id);
+        $upload_url = $data['upload_url']; // Получаем ссылку для загрузки обложки
         $ch = curl_init($upload_url);
         $curlfile = curl_file_create('images/upload.png');
         $data = array("file"=>$curlfile);
@@ -79,24 +66,13 @@ class VkApi {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         // Получаем hash и photo
         $response = json_decode(curl_exec($ch),true);
+        curl_close($ch);
         // Загружаем фото на сервер
-        $this->api('photos.saveOwnerCoverPhoto', array(
+        $this->vk->photos()->saveOwnerCoverPhoto(self::VK_API_ACCESS_TOKEN, array(
             'hash' => $response['hash'],
             'photo' => $response['photo']
         ));
         return true;
-    }
-
-    // Проверка ссылки
-    function check_link($link){
-        $ch = curl_init($link);
-        curl_setopt($ch,CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_exec($ch);
-        $info = curl_getinfo($ch);
-        // Получаем http code
-        $http_code = $info['http_code'];
-        return $http_code;
     }
 
     // Функция вызова любого метода api
@@ -108,6 +84,7 @@ class VkApi {
         $curl = curl_init($url);
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         $json = curl_exec($curl);
+        curl_close($curl);
         $response = json_decode($json, true); // Парсим ответ
         return $response;
     }
